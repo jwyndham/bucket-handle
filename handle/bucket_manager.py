@@ -4,9 +4,9 @@ from io import StringIO, BytesIO
 import pandas as pd
 from dataclasses import dataclass
 
-from src.caching.manager import CacheManager
-from src.caching.decorators import cache_data
-from src.read_write import (
+from handle.caching.manager import CacheManager
+from handle.caching.decorators import cache_data
+from handle.read_write import (
     read_json,
     write_json,
 )

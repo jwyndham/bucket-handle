@@ -1,7 +1,7 @@
 import functools
 from typing import Callable
 
-from src.bucket_manager import BucketManager
+from handle.bucket_manager import BucketManager
 
 
 def cache_data(reader: Callable, writer: Callable):

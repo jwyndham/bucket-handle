@@ -3,92 +3,77 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass
-from time import time
-from typing import Callable
+from dataclasses import dataclass, field
+from time import time, time_ns
+
+
+def unique_str():
+    return str(time_ns())
 
 
 @dataclass(frozen=True)
-class CallDetails:
-    call_signature: str
+class CacheAction:
+    """ Statement of whether a new cache file should be created
+    and where it should go for a given call signature
+    """
+    get_signature: str
+    refresh: bool
     filepath: str
-    life: int
-    exists: bool = False
-
-    def expired(self, life: int):
-        return time() - os.path.getmtime(self.filepath) > life
-
-    def execute_call(self) -> bool:
-        if not self.exists:
-            return True
-        if self.expired(self.life):
-            return True
-        else:
-            return False
-
-    @classmethod
-    def from_call_str(
-            cls,
-            call_str: str,
-            cache_manager: CacheManager
-    ):
-        log = cache_manager.retrieve_log()
-        if call_str in log.keys():
-            fp = log[call_str]
-            exists = os.path.exists(fp)
-        else:
-            fp = os.path.join(
-                cache_manager.directory,
-                cache_manager.next_cache_file_name()
-            )
-            exists = False
-        return cls(call_str, fp, cache_manager.life, exists)
 
 
 @dataclass
 class CacheManager:
+    """ Class for defining params of cache, managing log
+    and identifying whether files need creating/refreshing
+    """
     directory: str
-    life: int
+    expiry_seconds: int
+    cache_metadata: dict = field(default_factory={})
     dummy: bool = False
 
     @property
     def log_path(self) -> str:
-        return os.path.join(self.directory, 'log.json')
+        return os.path.join(self.directory, 'cache_log.json')
 
     def __post_init__(self):
         if not os.path.exists(self.directory):
             os.makedirs(self.directory)
         if not os.path.exists(self.log_path):
-            self.update_log({'next_call_ref_n': 0})
+            self.commit_log_updates({
+                'metadata': self.cache_metadata,
+                'filepaths': {}
+            })
+
+    def _new_fp(self):
+        return os.path.join(self.directory, unique_str())
 
     def retrieve_log(self):
         with open(self.log_path, 'r') as f:
             file = json.load(f)
         return file
 
-    def update_log(self, obj: dict):
+    def commit_log_updates(self, obj: dict):
         with open(self.log_path, 'w') as f:
             json.dump(obj, f, indent=2)
 
-    def next_cache_file_name(self):
-        log = self.retrieve_log()
-        name = str(log['next_call_ref_n']).zfill(10)
-        log['next_call_ref_n'] += 1
-        self.update_log(log)
-        return name
+    def cached_fp(self, call_str) -> str:
+        return self.retrieve_log()['filepaths'][call_str]
 
-    def call_details(self, call_str: str) -> CallDetails:
-        log = self.retrieve_log()
-        if call_str in log.keys():
-            fp = log[call_str]
-            exists = os.path.exists(fp)
+    def file_exists(self, call_str):
+        return call_str in self.retrieve_log()['filepaths'].keys()
+
+    def refresh_needed(self, fp):
+        return time() - os.path.getmtime(fp) > self.expiry_seconds
+
+    def action(self, call_str) -> CacheAction:
+        if self.file_exists(call_str):
+            fp = self.cached_fp(call_str)
+            refresh_needed = self.refresh_needed(fp)
         else:
-            fp = os.path.join(self.directory, self.next_cache_file_name())
-            exists = False
-        return CallDetails(call_str, fp, self.life, exists)
+            fp = self._new_fp()
+            refresh_needed = False
+        return CacheAction(call_str, refresh_needed, fp)
 
-    def new_call_record(self, call_details: CallDetails):
-        if not self.dummy:
-            log = self.retrieve_log()
-            log[call_details.call_signature] = call_details.filepath
-            self.update_log(log)
+    def log_new_file(self, action: CacheAction):
+        log = self.retrieve_log()
+        log['filepaths'][action.get_signature] = action.filepath

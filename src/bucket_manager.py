@@ -13,7 +13,7 @@ from src.read_write import (
 
 
 @dataclass
-class s3BucketManager:
+class BucketManager:
     bucket: str
     aws_id: str
     aws_key: str
